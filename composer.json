@@ -1,0 +1,40 @@
+{
+  "name": "qqchen/dify-laravel",
+  "description": "Dify SDK for Laravel, supporting Knowledge Base and Chat APIs.",
+  "keywords": [
+    "dify",
+    "laravel",
+    "sdk",
+    "ai",
+    "llm"
+  ],
+  "type": "library",
+  "license": "AGPL-3.0",
+  "authors": [
+    {
+      "name": "QQChen",
+      "email": "2327220169@qq.com"
+    }
+  ],
+  "require": {
+    "php": "^7.2|^8.0",
+    "guzzlehttp/guzzle": "^6.3|^7.0",
+    "illuminate/support": "^6.0|^7.0|^8.0|^9.0|^10.0|^11.0"
+  },
+  "autoload": {
+    "psr-4": {
+      "QQChen\\Dify\\": "src/"
+    }
+  },
+  "extra": {
+    "laravel": {
+      "providers": [
+        "QQChen\\Dify\\DifyServiceProvider"
+      ],
+      "aliases": {
+        "Dify": "QQChen\\Dify\\Facades\\Dify"
+      }
+    }
+  },
+  "minimum-stability": "stable"
+}
