@@ -18,7 +18,7 @@ class DifyServiceProvider extends ServiceProvider
         $this->app->singleton('dify', function ($app) {
             $config = $app['config']->get('dify');
 
-            // 修复：移除强制检查。在多租户模式下，全局 api_key 可能为空，
+            // 移除强制检查。在多租户模式下，全局 api_key 可能为空，
             // 只要后续通过 tenant() 提供了有效密钥即可。
             $apiKey = isset($config['api_key']) ? $config['api_key'] : '';
 

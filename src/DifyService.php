@@ -186,38 +186,50 @@ class DifyService
 
     /**
      * 内部辅助：根据类型获取合适的客户端
+     * 统一处理单租户和多租户的密钥获取逻辑
      */
     protected function getClientFor($type, $botName = 'default')
     {
-        if (!$this->contextConfig) {
-            return $this->client;
-        }
+        // 获取配置源：如果有上下文(多租户)则用上下文，否则读取 Laravel 全局配置(单租户)
+        $config = $this->contextConfig ?? Config::get('dify');
 
         $apiKey = null;
 
+        // 1. 尝试获取专用 Key (Dataset / Chatflow / Workflow)
         if ($type === 'dataset') {
-            $apiKey = $this->contextConfig['dataset_api_key'] ?? null;
+            $apiKey = $config['dataset_api_key'] ?? null;
         } elseif ($type === 'chatflow') {
-            $keys = $this->contextConfig['chatflow_api_key'] ?? [];
-            $apiKey = $keys[$botName] ?? ($keys['default'] ?? null);
+            $keys = $config['chatflow_api_key'] ?? [];
+            if (is_array($keys)) {
+                $apiKey = $keys[$botName] ?? ($keys['default'] ?? null);
+            } else {
+                $apiKey = $keys; // 兼容直接配置字符串的情况
+            }
         } elseif ($type === 'workflow') {
-            $keys = $this->contextConfig['workflow_api_key'] ?? [];
-            $apiKey = $keys[$botName] ?? ($keys['default'] ?? null);
+            $keys = $config['workflow_api_key'] ?? [];
+            if (is_array($keys)) {
+                $apiKey = $keys[$botName] ?? ($keys['default'] ?? null);
+            } else {
+                $apiKey = $keys;
+            }
         }
 
-        // 回退到通用 Key
-        if (!$apiKey && !empty($this->contextConfig['api_key'])) {
-            $apiKey = $this->contextConfig['api_key'];
+        // 2. 如果没找到专用 Key，回退到通用 api_key
+        if (empty($apiKey) && !empty($config['api_key'])) {
+            $apiKey = $config['api_key'];
         }
 
-        if (!$apiKey) {
-            return $this->client;
+        // 3. 如果找到了有效的 Key，创建一个新的 Client
+        // 这样即使在单租户模式下，也能正确使用 dataset_api_key 而不是空的默认 api_key
+        if ($apiKey) {
+            $baseUrl = $config['base_url'] ?? $this->client->getConfig('base_uri');
+            $timeout = $config['timeout'] ?? $this->client->getConfig('timeout');
+
+            return new DifyClient($apiKey, (string)$baseUrl, (int)($timeout ?? 60));
         }
 
-        $baseUrl = $this->contextConfig['base_url'] ?? $this->client->getConfig('base_uri');
-        $timeout = $this->contextConfig['timeout'] ?? $this->client->getConfig('timeout');
-
-        return new DifyClient($apiKey, (string)$baseUrl, (int)($timeout ?? 60));
+        // 4. 如果实在找不到，返回默认 Client (可能报错，取决于 ServiceProvider 初始化时是否有 api_key)
+        return $this->client;
     }
 
     protected function flushResources()
@@ -269,7 +281,6 @@ class DifyService
     public function model()
     {
         if (!$this->models) {
-            // 模型查询通常使用 Dataset API Key 鉴权
             $this->models = new ModelsResource($this->getClientFor('dataset'));
         }
         return $this->models;
