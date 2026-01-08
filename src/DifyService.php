@@ -7,14 +7,17 @@ use QQChen\Dify\Resources\DatasetResource;
 use QQChen\Dify\Resources\DocumentResource;
 use QQChen\Dify\Resources\MetadataResource;
 use QQChen\Dify\Resources\TagResource;
+use QQChen\Dify\Resources\SegmentResource;
+use QQChen\Dify\Resources\ModelsResource;
 use QQChen\Dify\Resources\ChatflowResource;
+use QQChen\Dify\Resources\WorkflowResource;
 use RuntimeException;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Cache;
 
 class DifyService
 {
-    /** @var DifyClient 默认客户端（单租户/全局配置） */
+    /** @var DifyClient 默认客户端 */
     protected $client;
 
     /** @var array|null 当前租户的上下文配置 */
@@ -23,11 +26,14 @@ class DifyService
     // 资源缓存
     protected $dataset;
     protected $document;
+    protected $segment;
     protected $metadata;
     protected $tag;
+    protected $models;
 
-    // Chatflow 资源缓存池 (针对不同 bot)
+    // 资源缓存池 (针对不同 bot)
     protected $chatflows = [];
+    protected $workflows = [];
 
     public function __construct(DifyClient $client)
     {
@@ -42,7 +48,6 @@ class DifyService
         if (!Config::get('dify.multi_tenant.enabled')) {
             return $this;
         }
-
 
         $driver = Config::get('dify.multi_tenant.driver');
         $resolvedConfig = [];
@@ -88,48 +93,22 @@ class DifyService
 
         $config = [];
 
-        // 1. 解析 Dataset Key (通常是单字段)
+        // 1. Dataset Key
         if (isset($mapping['dataset_api_key'])) {
             $config['dataset_api_key'] = $record->{$mapping['dataset_api_key']} ?? null;
         }
 
-        // 2. 解析 Chatflow Keys (可能是单字段，也可能是多字段，也可能是 JSON)
+        // 2. Chatflow Keys (JSON or Array)
         if (isset($mapping['chatflow_api_key'])) {
-            $mapConfig = $mapping['chatflow_api_key'];
-
-            if (is_array($mapConfig)) {
-                // 情况 A: 配置文件里直接写了字段映射数组 ['default' => 'col_1', 'bot2' => 'col_2']
-                $keys = [];
-                foreach ($mapConfig as $botName => $dbColumn) {
-                    $val = $record->{$dbColumn} ?? null;
-                    if ($val) $keys[$botName] = $val;
-                }
-                $config['chatflow_api_key'] = $keys;
-            } else {
-                // 情况 B: 映射的是单个数据库字段名
-                $val = $record->{$mapConfig} ?? null;
-
-                // 尝试判断是否为 JSON (存储了多个 key)
-                if (is_string($val) && (strpos($val, '{') === 0 || strpos($val, '[') === 0)) {
-                    $decoded = json_decode($val, true);
-                    if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
-                        // 数据库存的是 JSON: {"default": "key1", "marketing": "key2"}
-                        $config['chatflow_api_key'] = $decoded;
-                    } else {
-                        // 只是普通字符串，视为默认 key
-                        $config['chatflow_api_key'] = ['default' => $val];
-                    }
-                } elseif (is_array($val)) {
-                    // 已经是数组 (Eloquent Casts)
-                    $config['chatflow_api_key'] = $val;
-                } else {
-                    // 普通字符串
-                    $config['chatflow_api_key'] = ['default' => $val];
-                }
-            }
+            $config['chatflow_api_key'] = $this->parseKeyMap($record, $mapping['chatflow_api_key']);
         }
 
-        // 3. 解析 Base URL
+        // 3. Workflow Keys (JSON or Array)
+        if (isset($mapping['workflow_api_key'])) {
+            $config['workflow_api_key'] = $this->parseKeyMap($record, $mapping['workflow_api_key']);
+        }
+
+        // 4. Base URL
         if (!empty($mapping['base_url']) && !empty($record->{$mapping['base_url']})) {
             $config['base_url'] = $record->{$mapping['base_url']};
         }
@@ -140,36 +119,73 @@ class DifyService
     }
 
     /**
+     * 辅助方法：解析 Key 映射 (JSON/Array/String)
+     */
+    protected function parseKeyMap($record, $mapConfig)
+    {
+        if (is_array($mapConfig)) {
+            // 字段映射数组 ['default' => 'col1']
+            $keys = [];
+            foreach ($mapConfig as $botName => $dbColumn) {
+                $val = $record->{$dbColumn} ?? null;
+                if ($val) $keys[$botName] = $val;
+            }
+            return $keys;
+        } else {
+            // 单个字段
+            $val = $record->{$mapConfig} ?? null;
+
+            if (is_string($val) && (strpos($val, '{') === 0 || strpos($val, '[') === 0)) {
+                $decoded = json_decode($val, true);
+                if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                    return $decoded; // 数据库存的是 JSON
+                }
+            } elseif (is_array($val)) {
+                return $val; // Eloquent Casts
+            }
+
+            // 普通字符串，视为默认 key
+            return ['default' => $val];
+        }
+    }
+
+    /**
      * 手动设置上下文密钥
-     * @param string|array $apiKeys
      */
     public function withKey($apiKeys)
     {
         $instance = clone $this;
         $instance->flushResources();
 
+        $config = [];
+
         if (is_array($apiKeys)) {
-            $instance->contextConfig = [
-                'dataset_api_key' => $apiKeys['dataset'] ?? null,
-                // 支持直接传入数组给 chatflow
-                'chatflow_api_key' => is_array($apiKeys['chatflow'] ?? null)
-                    ? $apiKeys['chatflow']
-                    : ['default' => $apiKeys['chatflow'] ?? null],
-            ];
+            $config['dataset_api_key'] = $apiKeys['dataset'] ?? null;
+
+            // Chatflow keys
+            $config['chatflow_api_key'] = is_array($apiKeys['chatflow'] ?? null)
+                ? $apiKeys['chatflow']
+                : ['default' => $apiKeys['chatflow'] ?? null];
+
+            // Workflow keys
+            $config['workflow_api_key'] = is_array($apiKeys['workflow'] ?? null)
+                ? $apiKeys['workflow']
+                : ['default' => $apiKeys['workflow'] ?? null];
         } else {
-            $instance->contextConfig = [
+            // 字符串则全部设为同一个 key (不太常见)
+            $config = [
                 'dataset_api_key' => $apiKeys,
                 'chatflow_api_key' => ['default' => $apiKeys],
+                'workflow_api_key' => ['default' => $apiKeys],
             ];
         }
 
+        $instance->contextConfig = $config;
         return $instance;
     }
 
     /**
      * 内部辅助：根据类型获取合适的客户端
-     * @param string $type (dataset | chatflow)
-     * @param string $botName (仅用于 chatflow)
      */
     protected function getClientFor($type, $botName = 'default')
     {
@@ -183,13 +199,10 @@ class DifyService
             $apiKey = $this->contextConfig['dataset_api_key'] ?? null;
         } elseif ($type === 'chatflow') {
             $keys = $this->contextConfig['chatflow_api_key'] ?? [];
-            // 尝试获取指定 bot 的 key，如果没有，尝试获取 default
             $apiKey = $keys[$botName] ?? ($keys['default'] ?? null);
-
-            // 如果还是没有，且 $keys 本身就是个字符串 (兼容旧逻辑)
-            if (!$apiKey && is_string($keys)) {
-                $apiKey = $keys;
-            }
+        } elseif ($type === 'workflow') {
+            $keys = $this->contextConfig['workflow_api_key'] ?? [];
+            $apiKey = $keys[$botName] ?? ($keys['default'] ?? null);
         }
 
         // 回退到通用 Key
@@ -211,9 +224,12 @@ class DifyService
     {
         $this->dataset = null;
         $this->document = null;
+        $this->segment = null;
         $this->metadata = null;
         $this->tag = null;
-        $this->chatflows = []; // 清空数组
+        $this->models = null;
+        $this->chatflows = [];
+        $this->workflows = [];
     }
 
     // ==========================================
@@ -232,6 +248,12 @@ class DifyService
         return $this->document;
     }
 
+    public function segment()
+    {
+        if (!$this->segment) $this->segment = new SegmentResource($this->getClientFor('dataset'));
+        return $this->segment;
+    }
+
     public function metadata()
     {
         if (!$this->metadata) $this->metadata = new MetadataResource($this->getClientFor('dataset'));
@@ -244,17 +266,29 @@ class DifyService
         return $this->tag;
     }
 
-    /**
-     * 获取工作流/对话资源
-     * @param string $botName 工作流标识符 (默认为 'default')
-     * @return ChatflowResource
-     */
+    public function model()
+    {
+        if (!$this->models) {
+            // 模型查询通常使用 Dataset API Key 鉴权
+            $this->models = new ModelsResource($this->getClientFor('dataset'));
+        }
+        return $this->models;
+    }
+
     public function chatflow($botName = 'default')
     {
         if (!isset($this->chatflows[$botName])) {
             $this->chatflows[$botName] = new ChatflowResource($this->getClientFor('chatflow', $botName));
         }
         return $this->chatflows[$botName];
+    }
+
+    public function workflow($botName = 'default')
+    {
+        if (!isset($this->workflows[$botName])) {
+            $this->workflows[$botName] = new WorkflowResource($this->getClientFor('workflow', $botName));
+        }
+        return $this->workflows[$botName];
     }
 
     public function getClient()

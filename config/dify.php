@@ -1,6 +1,16 @@
 <?php
 
 return [
+    /*
+    |--------------------------------------------------------------------------
+    | Dify API Configuration
+    |--------------------------------------------------------------------------
+    |
+    | api_key: 你的 Dify 应用 API Key (Knowledge API Key 或 Service API Key)
+    | base_url: Dify API 的基础地址，私有部署请填写自己的域名
+    | timeout: 请求超时时间
+    |
+    */
 
     /*
     |--------------------------------------------------------------------------
@@ -15,6 +25,7 @@ return [
     // 如果你的知识库和工作流使用不同的默认 Key，可在此分开配置
     'dataset_api_key' => env('DIFY_DATASET_API_KEY'),
     'chatflow_api_key' => env('DIFY_CHATFLOW_API_KEY'),
+    'workflow_api_key' => env('DIFY_WORKFLOW_API_KEY'),
 
     'base_url' => env('DIFY_BASE_URL', 'https://api.dify.ai/v1'),
 
@@ -33,7 +44,7 @@ return [
         'enabled' => env('DIFY_MULTI_TENANT', false),
 
         // 驱动模式: 'model' (数据库自动查询) 或 'config' (静态数组映射)
-        'driver' => 'model',
+        'driver' => 'config',
 
         /*
          |--------------------------------------------------------------------------
@@ -52,15 +63,11 @@ return [
             'mapping' => [
                 'dataset_api_key'  => 'dify_dataset_key', // 知识库通常是通用的，映射到单一字段
 
-                // === 多工作流密钥配置 ===
-                // 方式 A (推荐): 映射到一个 JSON 字段，该字段存储如 {"default": "key1", "writer": "key2"}
+                // Chatflow 应用密钥 (JSON)
                 'chatflow_api_key' => 'dify_chatflow_keys',
 
-                // 方式 B: 映射到多个具体的数据库字段
-                // 'chatflow_api_key' => [
-                //     'default'   => 'dify_chat_key',
-                //     'marketing' => 'dify_marketing_key',
-                // ],
+                // [新增] Workflow 应用密钥 (JSON)
+                'workflow_api_key' => 'dify_workflow_keys',
 
                 'base_url'         => 'dify_base_url',    // (可选) 如果租户有独立部署地址
             ],
@@ -79,12 +86,17 @@ return [
             // 'store_id_1001' => [ ... ]
             '1001' => [
                 'dataset_api_key' => 'dataset-key-001',
-                // 支持多工作流配置
+                // 支持多工作流/聊天流配置
                 'chatflow_api_key' => [
                     'default' => 'chat-key-001',
                     'writer'  => 'writer-key-001',
                 ],
-                // === 独立部署地址 (这里就是你提到的配置) ===
+                //支持多 Workflow 应用配置
+                'workflow_api_key' => [
+                    'default' => 'workflow-key-001',
+                    'translator' => 'translator-key-001',
+                ],
+                // === 独立部署地址 ===
                 // 如果该租户使用独立的 Dify 实例，可在此配置，SDK 会自动识别并覆盖全局 base_url
                 'base_url' => 'https://dify.private-deployment.com/v1',
             ],

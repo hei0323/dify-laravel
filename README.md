@@ -1,9 +1,9 @@
 
 # Dify SDK for Laravel
 
-A powerful, feature-rich Laravel SDK for Dify.ai, supporting Knowledge Base management, Chatflow (Workflows), Multi-tenancy, and Streaming responses.
+A powerful, feature-rich Laravel SDK for Dify.ai, supporting Knowledge Base management, Chatflow (Workflows), Multi-tenancy, Streaming responses, and advanced Document Segment control.
 
-这是一个功能强大的 Dify.ai Laravel SDK，支持知识库管理、工作流（Chatflow）、多租户架构以及流式对话响应。
+这是一个功能强大的 Dify.ai Laravel SDK，支持知识库管理、工作流（Chatflow/Workflow）、多租户架构、流式对话响应以及精细化的文档分段管理。
 
 ## 🌟 Features (特性)
 
@@ -15,7 +15,13 @@ A powerful, feature-rich Laravel SDK for Dify.ai, supporting Knowledge Base mana
 
 * **Knowledge Base Management (知识库管理):** Create datasets, upload documents (local/URL), manage metadata, and tags.
 
-* **Chatflow & Streaming (工作流与流式对话):** Send messages, handle streaming responses (SSE), upload files/audio, and text-to-speech.
+* **Document Segments (文档分段):** Fine-grained control over document chunks (list, add, update, delete, child-chunks).
+
+* **Models Management (模型管理):** Retrieve available embedding models from Dify.
+
+* **Chatflow & Streaming (对话流与流式响应):** Send messages, handle streaming responses (SSE), upload files/audio, and text-to-speech.
+
+* **Workflow Execution (工作流执行)::** Trigger workflow runs, handle file inputs, and retrieve execution logs.
 
 * **Metadata & Tags (元数据与标签):** Comprehensive management for dataset metadata and tagging system.
 
@@ -58,16 +64,19 @@ Map your database columns to Dify keys.
 ```
 // config/dify.php
 'multi_tenant' => [
-'enabled' => true,
-'driver' => 'model',
-'model' => [
-'class' => \App\Models\StoreConfig::class, // Your Tenant Model
-'foreign_key' => 'store_id',               // The column to match tenant($id)
-'mapping' => [
-'dataset_api_key'  => 'dify_dataset_key', // DB column for Dataset Key
-
+    'enabled' => true,
+    'driver' => 'model',
+    'model' => [
+        'class' => \App\Models\StoreConfig::class, // Your Tenant Model
+        'foreign_key' => 'store_id',               // The column to match tenant($id)
+        'mapping' => [
+            'dataset_api_key'  => 'dify_dataset_key', // DB column for Dataset Key
+            
             // Map multiple bots to a JSON column (e.g. {"default": "key1", "marketing": "key2"})
             'chatflow_api_key' => 'dify_chatflow_keys', // DB column (JSON)
+            
+            // Map multiple workflows to a JSON column
+            'workflow_api_key' => 'dify_workflow_keys', // DB column (JSON)
             
             'base_url'         => 'dify_base_url',    // DB column for private deployment URL
         ],
@@ -89,10 +98,16 @@ Define tenants directly in the config file.
             'chatflow_api_key' => [
                 'default' => 'chat-key-1001',
                 'marketing' => 'marketing-key-1001'
-                ],
-            'base_url' => 'https://private-dify.com/v1',
+            ],
+            'workflow_api_key' => [
+                'default' => 'wf-key-1001',
+                'translator' => 'translator-key-1001'
+            ],
+            'base_url' => '[https://private-dify.com/v1](https://private-dify.com/v1)',
+        ],
     ],
 ],
+
 ```
 
 ## 🚀 Usage (使用方法)
@@ -126,12 +141,13 @@ Supports local files and remote URLs.
 ````
 // Upload local file
 Dify::document()->createByFile($datasetId, '/path/to/file.pdf', [
-'mode' => 'automatic',
-'file_name' => 'manual.pdf' // Optional override
+    'mode' => 'automatic',
+    'file_name' => 'manual.pdf' // Optional override
 ]);
 
 // Upload from URL
 Dify::document()->createByFile($datasetId, '[https://example.com/doc.pdf](https://example.com/doc.pdf)');
+
 ````
 
 ### Retrieve (测试检索)
@@ -145,6 +161,36 @@ Dify::dataset()->retrieve($datasetId, 'How to use this?', 'hybrid_rerank');
 Dify::dataset()->retrieve($datasetId, 'How to use this?', 'vector', ['top_k' => 10]);
 ````
 
+### 🧩 Document Segments (文档分段)
+
+Manage chunks within a document.
+````
+// List segments
+$segments = Dify::segment()->list($datasetId, $documentId);
+
+// Add new segments
+Dify::segment()->create($datasetId, $documentId, [
+    ['content' => 'This is chunk 1', 'keywords' => ['test']],
+    ['content' => 'This is chunk 2']
+]);
+
+// Update a segment
+Dify::segment()->update($datasetId, $documentId, $segmentId, [
+    'content' => 'Updated content',
+    'enabled' => true
+]);
+
+// Delete a segment
+Dify::segment()->delete($datasetId, $documentId, $segmentId);
+````
+
+### 🤖 Models (模型管理)
+
+Get available embedding models for creating datasets.
+````
+$models = Dify::model()->getEmbeddingModels();
+````
+
 ### 💬 Chatflow / Agent (工作流对话)
 
 ### Send Message (发送消息)
@@ -152,17 +198,17 @@ Dify::dataset()->retrieve($datasetId, 'How to use this?', 'vector', ['top_k' => 
 ### Blocking Mode (Wait for full response):
 ````
 $response = Dify::chatflow()->sendMessage(
-'Hello, who are you?',
-'user-123',
-[], // inputs
-'blocking'
+    'Hello, who are you?',
+    'user-123',
+    [], // inputs
+    'blocking'
 );
 echo $response['data']['answer'];
 ````
 
 ### Streaming Mode (Real-time SSE):
 
-Note: In your Controller, return a StreamedResponse to stream data to the frontend.
+  *Note: In your Controller, return a StreamedResponse to stream data to the frontend.*
 ````
 // Controller
 public function chat(Request $request)
@@ -200,16 +246,90 @@ Dify::chatflow()->sendMessage(...);
 Dify::chatflow('marketing')->sendMessage(...);
 ````
 
-### 🏷️ Tags & Metadata (标签与元数据)
+### ⚙️ Workflow (工作流)
+
+Manage and run Workflow apps (Text Generator, Translator, etc.).
+
+### Run Workflow (执行工作流)
 ````
-// Create a tag
-Dify::tag()->create('HR Documents');
+// Blocking Mode
+$result = Dify::workflow()->run(
+    ['input_1' => 'value'], // inputs
+    'user-123',
+    'blocking'
+);
 
-// Bind tag to dataset
-Dify::tag()->bind($datasetId, [$tagId]);
+// Streaming Mode (same as Chatflow example above)
+$stream = Dify::workflow()->run(
+    ['input_1' => 'value'], 
+    'user-123', 
+    'streaming'
+);
+````
 
-// Create metadata field
-Dify::metadata()->createField($datasetId, 'department', 'string');
+### Other Workflow Actions
+````
+// Get Workflow Logs
+Dify::workflow()->getLogs(['status' => 'succeeded']);
+
+// Upload File for Workflow
+Dify::workflow()->uploadFile('/path/to/image.png', 'user-123');
+
+// Use specific Workflow App
+Dify::workflow('translator')->run(...);
+````
+
+### 🏷️ Tags & Metadata (标签与元数据)
+
+Comprehensive management for organizing your datasets.
+
+### Tag Management (标签管理)
+````
+// List all tags
+$tags = Dify::tag()->list();
+
+// Create a new tag
+$tag = Dify::tag()->create('HR Documents');
+
+// Update a tag
+Dify::tag()->update($tag['id'], 'Human Resources');
+
+// Delete a tag
+Dify::tag()->delete($tag['id']);
+
+// Bind tag to a dataset
+Dify::tag()->bind($datasetId, [$tag['id']]);
+
+// Unbind tag from a dataset
+Dify::tag()->unbind($datasetId, $tag['id']);
+````
+
+### Metadata Management (元数据管理)
+````
+// List metadata fields for a dataset
+$fields = Dify::metadata()->list($datasetId);
+
+// Create a new metadata field
+// types: 'string', 'number', 'time'
+Dify::metadata()->createField($datasetId, 'category', 'string');
+
+// Update metadata field (name only)
+Dify::metadata()->updateField($datasetId, $metadataId, 'new_category_name');
+
+// Delete metadata field
+Dify::metadata()->deleteField($datasetId, $metadataId);
+
+// Batch update metadata for documents
+Dify::metadata()->updateDocumentsMetadata($datasetId, [
+    [
+        'document_id' => 'doc-uuid-1',
+        'metadata_list' => [
+            ['id' => 'meta-uuid-1', 'value' => 'Finance', 'name' => 'category'],
+            ['id' => 'meta-uuid-2', 'value' => 2024, 'name' => 'year']
+        ]
+    ]
+]);
+
 ````
 
 ## 📜 License
