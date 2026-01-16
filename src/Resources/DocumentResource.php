@@ -135,6 +135,14 @@ class DocumentResource
 
             $processRule['rules']['parent_mode'] = isset($userRules['parent_mode']) ? $userRules['parent_mode'] : 'paragraph';
 
+            // 合并 pre_processing_rules 配置
+            if (isset($userRules['pre_processing_rules'])) {
+                $processRule['rules']['pre_processing_rules'] = array_merge(
+                    $processRule['rules']['pre_processing_rules'],
+                    $userRules['pre_processing_rules']
+                );
+            }
+
             // 合并 segmentation 配置
             if (isset($userRules['segmentation'])) {
                 $processRule['rules']['segmentation'] = array_merge(

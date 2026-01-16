@@ -66,7 +66,7 @@ return [
                 // Chatflow 应用密钥 (JSON)
                 'chatflow_api_key' => 'dify_chatflow_keys',
 
-                // [新增] Workflow 应用密钥 (JSON)
+                //Workflow 应用密钥 (JSON)
                 'workflow_api_key' => 'dify_workflow_keys',
 
                 'base_url'         => 'dify_base_url',    // (可选) 如果租户有独立部署地址

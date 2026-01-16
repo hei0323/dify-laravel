@@ -184,6 +184,31 @@ class DatasetResource
             ],
 
             // 4. 混合权重检索
+            //{
+            //  "query": "问题测试？",
+            //  "retrieval_model": {
+            //    "search_method": "hybrid_search",
+            //    "reranking_enable": true,
+            //    "reranking_mode": "weighted_score",
+            //    "reranking_model": {
+            //      "reranking_provider_name": "langgenius/xinference/xinference",
+            //      "reranking_model_name": "bge-reranker-base"
+            //    },
+            //    "top_k": 10,
+            //    "score_threshold_enabled": true,
+            //    "score_threshold": 0.2,
+            //    "weights": 0.5,
+            //    "metadata_filtering_conditions": {
+            //      "logical_operator": "or",
+            //      "conditions": [
+            //        {
+            //          "name": "cate",
+            //          "comparison_operator": "=",
+            //          "value": "enable"
+            //        }
+            //      ]
+            //    }
+            //  }
             'hybrid_weighted' => [
                 "search_method" => "hybrid_search",
                 "reranking_enable" => true,
@@ -192,6 +217,9 @@ class DatasetResource
                     "reranking_provider_name" => "langgenius/xinference/xinference",
                     "reranking_model_name" => "bge-reranker-base"
                 ],
+                "top_k" => 10,
+                "score_threshold_enabled" => true,
+                "score_threshold" => 0.2,
                 "weights" => [
                     "weight_type" => "customized",
                     "vector_setting" => [
@@ -203,9 +231,15 @@ class DatasetResource
                         "keyword_weight" => 0.4
                     ]
                 ],
-                "top_k" => 4,
-                "score_threshold_enabled" => true,
-                "score_threshold" => 0.2
+                "metadata_filtering_conditions"=>[
+                    "logical_operator"=>"or",
+                    "conditions"=>[
+                        ["name"=>"cate",'comparison_operator'=>"=","value"=>"enable"],
+                    ],
+                ]
+
+
+
             ],
 
             // 5. 关键词检索
